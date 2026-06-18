@@ -1,0 +1,254 @@
+# -*- coding: utf-8 -*-
+# =============================================================================
+#  CELL_MASK.PYSCRO
+#  SBF-SEM Cell Masking Pipeline - Amira Module (UI)
+# =============================================================================
+#
+#  PURPOSE :
+#     Amira-integrated UI for the cell masking pipeline.
+#     Wraps cell_mask_core.py (all the actual logic lives there).
+#
+#  INSTALLATION :
+#     1. Copy cell_mask_core.py to :
+#         <Amira>/share/python_modules/sbfsem/cell_mask_core.py
+#     2. Copy this file to :
+#         <Amira>/share/python_script_objects/cell_mask.pyscro
+#     3. Copy cell_mask.rc to :
+#         <Amira>/share/resources/cell_mask.rc
+#     4. Restart Amira. A button "SBF-SEM Cell Mask v2" appears in the left panel.
+#
+#  USAGE :
+#     Click the button, a module with properties appears.
+#     - Input Folder   : select a folder of TIFFs (e.g. denoised stack)
+#     - Output Folder  : select an existing empty folder
+#     - N Samples      : 0 = all files, >0 = test on N evenly-spaced slices
+#     - Downsample     : factor for mask computation (4 is fine for most data)
+#     - Closing Radius : for morphological closing (5 is a good default)
+#     - Padding        : extra pixels around max bbox (100 is safe)
+#     - Output Scale   : 1 = full resolution, 2 = half, 4 = quarter
+#     - Auto-load      : ON = load first masked TIFF in Amira when done
+#     Click "Apply" when ready.
+#
+#  NOTE :
+#     For 125 slices at 13664x13184, expect ~45-60 minutes of processing.
+#     Amira's UI will be frozen during processing (this is normal).
+#     Progress messages are shown in the status field and the console.
+# =============================================================================
+
+import os
+import sys
+import traceback
+
+
+# ------- Locate and import the core module -------
+# Try several possible install paths. The "right" one depends on how
+# the user installed cell_mask_core.py.
+_possible_paths = [
+    os.path.join(hx_paths.python_modules_dir, 'sbfsem'),
+    os.path.join(hx_paths.python_modules_dir),
+    r'C:\Program Files\Thermo Scientific Amira-Avizo3D 2025.1\share\python_modules\sbfsem',
+    r'C:\Program Files\Thermo Scientific Amira-Avizo3D 2025.1\share\python_modules',
+]
+for p in _possible_paths:
+    if p not in sys.path:
+        sys.path.append(p)
+
+try:
+    import cell_mask_core
+    # Force reload in case we iterate during development
+    import importlib
+    importlib.reload(cell_mask_core)
+    from cell_mask_core import run_pipeline
+    _IMPORT_OK = True
+    _IMPORT_ERROR = None
+except Exception as e:
+    _IMPORT_OK = False
+    _IMPORT_ERROR = str(e)
+    print("[cell_mask.pyscro] Failed to import cell_mask_core:")
+    traceback.print_exc()
+
+
+# =============================================================================
+#  AMIRA SCRIPT OBJECT CLASS
+# =============================================================================
+
+class CellMaskPipeline(PyScriptObject):
+    """
+    Amira module wrapping cell_mask_core.run_pipeline().
+    """
+
+    def __init__(self):
+        try:
+            self._build_ports()
+        except Exception as e:
+            print("=" * 60)
+            print("[cell_mask.pyscro] ERROR during __init__ :")
+            print(f"  {type(e).__name__}: {e}")
+            traceback.print_exc()
+            print("=" * 60)
+            # Try to create at least a status port to show the error
+            try:
+                self.status = HxPortInfo(self, 'status', 'Status')
+                self.status.text = f"INIT ERROR : {type(e).__name__}: {str(e)[:150]}"
+            except Exception:
+                pass
+            try:
+                self.do_it = HxPortDoIt(self, 'do_it', 'Run')
+            except Exception:
+                pass
+
+    def _build_ports(self):
+        # ----- Input folder -----
+        self.input_dir = HxPortFilename(self, 'input_dir', 'Input folder (TIFFs)')
+        self.input_dir.mode = HxPortFilename.LOAD_DIRECTORY
+
+        # ----- Output folder -----
+        self.output_dir = HxPortFilename(self, 'output_dir', 'Output folder (will be created)')
+        self.output_dir.mode = HxPortFilename.LOAD_DIRECTORY
+
+        # ----- Test mode : number of sample slices (0 = all) -----
+        self.n_samples = HxPortIntSlider(self, 'n_samples', 'N samples (0=all, test mode)')
+        self.n_samples.clamp_range = (0, 500)
+        self.n_samples.value = 10
+
+        # ----- Downsample factor for mask computation -----
+        self.downsample = HxPortIntSlider(self, 'downsample', 'Mask downsample (speed)')
+        self.downsample.clamp_range = (1, 16)
+        self.downsample.value = 4
+
+        # ----- Morphological closing radius -----
+        self.closing_radius = HxPortIntSlider(self, 'closing_radius', 'Closing radius (mask)')
+        self.closing_radius.clamp_range = (1, 20)
+        self.closing_radius.value = 5
+
+        # ----- Canvas padding -----
+        self.padding = HxPortIntSlider(self, 'padding', 'Canvas padding (px)')
+        self.padding.clamp_range = (0, 500)
+        self.padding.value = 100
+
+        # ----- Final output downsampling -----
+        self.output_scale = HxPortIntSlider(self, 'output_scale', 'Output scale (1=full, 2=half)')
+        self.output_scale.clamp_range = (1, 8)
+        self.output_scale.value = 2
+
+        # ----- Auto-load result in Amira (0=OFF, 1=ON) -----
+        # Use IntSlider instead of ToggleList because the latter had API issues
+        # in the first attempt.
+        self.auto_load = HxPortIntSlider(self, 'auto_load', 'Auto-load (0=OFF, 1=ON)')
+        self.auto_load.clamp_range = (0, 1)
+        self.auto_load.value = 0
+
+        # ----- Status info -----
+        self.status = HxPortInfo(self, 'status', 'Status')
+        if _IMPORT_OK:
+            self.status.text = "Ready. Set folders and click Run."
+        else:
+            self.status.text = f"ERROR : {_IMPORT_ERROR}"
+
+        # ----- Run button -----
+        self.do_it = HxPortDoIt(self, 'do_it', 'Run')
+
+    # -------------------------------------------------------------------------
+    #  Progress callback (called from the core during processing)
+    # -------------------------------------------------------------------------
+
+    def _progress(self, current, total, message):
+        """
+        Called from cell_mask_core.run_pipeline() to update the Amira UI.
+        Updates the status text and prints to the console.
+        """
+        pct = int(100 * current / total) if total > 0 else 0
+        msg = f"[{pct}%] {message}"
+        self.status.text = msg
+        print(msg)
+        # Force the UI to refresh. Amira caches the status otherwise.
+        try:
+            hx_app.process_events()
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------------
+    #  Main compute logic (called when user clicks the Run button)
+    # -------------------------------------------------------------------------
+
+    def compute(self):
+        if not self.do_it.was_hit:
+            return
+
+        if not _IMPORT_OK:
+            self.status.text = f"ERROR : cannot import cell_mask_core : {_IMPORT_ERROR}"
+            return
+
+        # ----- Validate inputs -----
+        input_dir = self.input_dir.filenames
+        output_dir = self.output_dir.filenames
+        if not input_dir or not os.path.isdir(input_dir):
+            self.status.text = "ERROR : input folder not set or does not exist."
+            return
+        if not output_dir:
+            self.status.text = "ERROR : output folder not set."
+            return
+
+        # Extract parameter values
+        n_samples = int(self.n_samples.value)
+        downsample = int(self.downsample.value)
+        closing_radius = int(self.closing_radius.value)
+        padding = int(self.padding.value)
+        output_scale = int(self.output_scale.value)
+        auto_load = int(self.auto_load.value) == 1
+
+        # ----- Run -----
+        try:
+            print("=" * 60)
+            print("SBF-SEM Cell Masking Pipeline v2")
+            print("=" * 60)
+            print(f"Input          : {input_dir}")
+            print(f"Output         : {output_dir}")
+            print(f"N samples      : {n_samples} ({'all' if n_samples == 0 else 'test mode'})")
+            print(f"Mask downsample: {downsample}")
+            print(f"Closing radius : {closing_radius}")
+            print(f"Padding        : {padding}")
+            print(f"Output scale   : {output_scale}")
+
+            self.status.text = "Running ... (Amira UI is frozen, see console)"
+
+            result = run_pipeline(
+                input_dir=input_dir,
+                output_dir=output_dir,
+                n_samples=n_samples,
+                downsample=downsample,
+                closing_radius=closing_radius,
+                padding=padding,
+                output_scale=output_scale,
+                progress_callback=self._progress,
+            )
+
+            # ----- Success summary -----
+            summary = (f"Done. {result['n_files']} files. "
+                       f"Canvas {result['canvas_h']}x{result['canvas_w']}. "
+                       f"-{result['reduction_pct']:.0f}% size.")
+            self.status.text = summary
+            print("\n" + "=" * 60)
+            print(summary)
+            print(f"Output : {result['output_dir']}")
+            print("=" * 60)
+
+            # ----- Optional auto-load -----
+            if auto_load:
+                import glob
+                masked_files = sorted(glob.glob(
+                    os.path.join(result['masked_dir'], '*.tif')))
+                if masked_files:
+                    first_file = masked_files[0]
+                    try:
+                        hx_project.load(first_file)
+                        print(f"Loaded : {first_file}")
+                        self.status.text = summary + " File loaded."
+                    except Exception as e:
+                        print(f"Could not auto-load : {e}")
+                        self.status.text = summary + " Auto-load failed (load manually)."
+
+        except Exception as e:
+            self.status.text = f"ERROR : {str(e)[:200]}"
+            print("\n[cell_mask.pyscro] ERROR during processing :")
+            traceback.print_exc()
