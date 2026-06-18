@@ -1,0 +1,28 @@
+# Données et sorties (jamais versionner les volumes SBF-SEM)
+*.tif
+*.tiff
+*.raw
+*.am
+*.hx
+data/
+output/
+outputs/
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / éditeurs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
