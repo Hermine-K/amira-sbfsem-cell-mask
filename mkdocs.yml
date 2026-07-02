@@ -30,6 +30,7 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
+  - Example: example.md
   - Outputs: outputs.md
   - Amira integration: amira.md
   - About: about.md
