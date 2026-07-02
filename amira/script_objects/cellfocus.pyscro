@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # =============================================================================
-#  CELL_MASK.PYSCRO
-#  SBF-SEM Cell Masking Pipeline - Amira Module (UI)
+#  CELLFOCUS.PYSCRO
+#  CellFocus - SBF-SEM cell masking - Amira Module (UI)
 # =============================================================================
 #
 #  PURPOSE :
@@ -10,12 +10,12 @@
 #
 #  INSTALLATION :
 #     1. Copy cell_mask_core.py to :
-#         <Amira>/share/python_modules/sbfsem/cell_mask_core.py
+#         <Amira>/share/python_modules/cellfocus/cell_mask_core.py
 #     2. Copy this file to :
-#         <Amira>/share/python_script_objects/cell_mask.pyscro
-#     3. Copy cell_mask.rc to :
-#         <Amira>/share/resources/cell_mask.rc
-#     4. Restart Amira. A button "SBF-SEM Cell Mask v2" appears in the left panel.
+#         <Amira>/share/python_script_objects/cellfocus.pyscro
+#     3. Copy cellfocus.rc to :
+#         <Amira>/share/resources/cellfocus.rc
+#     4. Restart Amira. A button "CellFocus - SBF-SEM Cell Mask" appears in the left panel.
 #
 #  USAGE :
 #     Click the button, a module with properties appears.
@@ -44,9 +44,9 @@ import traceback
 # Try several possible install paths. The "right" one depends on how
 # the user installed cell_mask_core.py.
 _possible_paths = [
-    os.path.join(hx_paths.python_modules_dir, 'sbfsem'),
+    os.path.join(hx_paths.python_modules_dir, 'cellfocus'),
     os.path.join(hx_paths.python_modules_dir),
-    r'C:\Program Files\Thermo Scientific Amira-Avizo3D 2025.1\share\python_modules\sbfsem',
+    r'C:\Program Files\Thermo Scientific Amira-Avizo3D 2025.1\share\python_modules\cellfocus',
     r'C:\Program Files\Thermo Scientific Amira-Avizo3D 2025.1\share\python_modules',
 ]
 for p in _possible_paths:
@@ -72,7 +72,7 @@ except Exception as e:
 #  AMIRA SCRIPT OBJECT CLASS
 # =============================================================================
 
-class CellMaskPipeline(PyScriptObject):
+class CellFocusPipeline(PyScriptObject):
     """
     Amira module wrapping cell_mask_core.run_pipeline().
     """
@@ -130,6 +130,11 @@ class CellMaskPipeline(PyScriptObject):
         self.output_scale = HxPortIntSlider(self, 'output_scale', 'Output scale (1=full, 2=half)')
         self.output_scale.clamp_range = (1, 8)
         self.output_scale.value = 2
+
+        # ----- Contrast polarity : is the cell darker than background ? -----
+        self.cell_dark = HxPortIntSlider(self, 'cell_dark', 'Cell is dark (0=bright cell, 1=dark cell)')
+        self.cell_dark.clamp_range = (0, 1)
+        self.cell_dark.value = 0
 
         # ----- Auto-load result in Amira (0=OFF, 1=ON) -----
         # Use IntSlider instead of ToggleList because the latter had API issues
@@ -195,12 +200,13 @@ class CellMaskPipeline(PyScriptObject):
         closing_radius = int(self.closing_radius.value)
         padding = int(self.padding.value)
         output_scale = int(self.output_scale.value)
+        cell_dark = int(self.cell_dark.value) == 1
         auto_load = int(self.auto_load.value) == 1
 
         # ----- Run -----
         try:
             print("=" * 60)
-            print("SBF-SEM Cell Masking Pipeline v2")
+            print("CellFocus - SBF-SEM cell masking")
             print("=" * 60)
             print(f"Input          : {input_dir}")
             print(f"Output         : {output_dir}")
@@ -209,6 +215,7 @@ class CellMaskPipeline(PyScriptObject):
             print(f"Closing radius : {closing_radius}")
             print(f"Padding        : {padding}")
             print(f"Output scale   : {output_scale}")
+            print(f"Cell is dark   : {cell_dark}")
 
             self.status.text = "Running ... (Amira UI is frozen, see console)"
 
@@ -220,6 +227,7 @@ class CellMaskPipeline(PyScriptObject):
                 closing_radius=closing_radius,
                 padding=padding,
                 output_scale=output_scale,
+                cell_dark=cell_dark,
                 progress_callback=self._progress,
             )
 

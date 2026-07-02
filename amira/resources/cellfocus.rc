@@ -1,0 +1,22 @@
+# =============================================================================
+#  CELLFOCUS.RC
+#  Registers the CellFocus module as a left-panel macro button in Amira.
+# =============================================================================
+#
+#  PURPOSE :
+#     Creates a button "CellFocus - SBF-SEM Cell Mask" in the left panel of
+#     Amira. Clicking it loads the cellfocus.pyscro module.
+#
+#  INSTALLATION :
+#     Copy to : <Amira>/share/resources/cellfocus.rc
+#
+#  NOTE :
+#     The path below is hard-coded. If your Amira installation path differs,
+#     update it accordingly.
+# =============================================================================
+
+macroButton -add "CellFocus - SBF-SEM Cell Mask" \
+            -color "#674EA7" \
+            -proc {
+                load "C:/Program Files/Thermo Scientific Amira-Avizo3D 2025.1/share/python_script_objects/cellfocus.pyscro"
+            }

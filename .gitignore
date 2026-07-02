@@ -1,28 +1,21 @@
-# Données et sorties (jamais versionner les volumes SBF-SEM)
-*.tif
-*.tiff
-*.raw
-*.am
-*.hx
-data/
-output/
-outputs/
-results/
-
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-venv/
-env/
+.eggs/
+build/
+dist/
+.pytest_cache/
 
-# Notebooks
-.ipynb_checkpoints/
-
-# OS / éditeurs
+# Editors / OS / junk
+.Rhistory
 .DS_Store
-Thumbs.db
-.idea/
-.vscode/
+.ipynb_checkpoints/
 *.swp
+
+# Pipeline outputs (do not commit generated data)
+/masked/
+/unmasked/
+/masks/
+/qc/
+/stats/

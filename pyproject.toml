@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cellfocus"
+version = "0.1.0"
+description = "Cell-focused preprocessing for SBF-SEM organelle segmentation: automatic cell masking, cropping and lossless data reduction."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Hermine Kiossou", email = "kiossouh@gmail.com" }]
+keywords = ["SBF-SEM", "electron-microscopy", "segmentation", "preprocessing", "bioimaging", "Amira"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+  "numpy",
+  "tifffile",
+  "scikit-image",
+  "scipy",
+  "matplotlib",
+  "pandas",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/Hermine-K/amira-sbfsem-cell-mask"
+Repository = "https://github.com/Hermine-K/amira-sbfsem-cell-mask"
+
+[project.scripts]
+cellfocus = "cellfocus.cell_mask_core:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

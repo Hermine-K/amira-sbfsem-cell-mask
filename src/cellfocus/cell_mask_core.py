@@ -1,7 +1,7 @@
 """
 =============================================================================
- CELL_MASK_CORE.PY
- SBF-SEM Cell Masking Pipeline - Core logic
+ CELLFOCUS - cell_mask_core.py
+ Cell-focused preprocessing for SBF-SEM segmentation - Core logic
 =============================================================================
 
  This module can be used in TWO ways :
@@ -49,7 +49,7 @@ import pandas as pd
 # =============================================================================
 
 def compute_cell_mask(image, downsample=4, closing_radius=5,
-                      min_area_fraction=0.01):
+                      min_area_fraction=0.01, cell_dark=False):
     """
     Compute a binary mask of the main cell in a 2D image.
 
@@ -83,7 +83,8 @@ def compute_cell_mask(image, downsample=4, closing_radius=5,
     except ValueError:
         return np.zeros_like(image, dtype=bool), 0
 
-    binary = small > thr
+    # Contrast polarity: cell brighter than background (default) or darker.
+    binary = (small < thr) if cell_dark else (small > thr)
     binary = binary_closing(binary, disk(closing_radius))
     binary = binary_fill_holes(binary)
 
@@ -124,7 +125,8 @@ def get_bbox(mask):
 #  PIPELINE STEPS
 # =============================================================================
 
-def scan_slices(files, downsample, closing_radius, progress_callback=None):
+def scan_slices(files, downsample, closing_radius, cell_dark=False,
+                progress_callback=None):
     """
     First pass : compute mask, bbox, centroid for each slice.
     """
@@ -138,7 +140,8 @@ def scan_slices(files, downsample, closing_radius, progress_callback=None):
         if img.ndim != 2:
             continue
 
-        mask, thr = compute_cell_mask(img, downsample, closing_radius)
+        mask, thr = compute_cell_mask(img, downsample, closing_radius,
+                                      cell_dark=cell_dark)
         bbox = get_bbox(mask)
         if bbox is None:
             continue
@@ -171,13 +174,13 @@ def compute_canvas_size(records, padding=100):
 
 
 def process_and_save(record, canvas_h, canvas_w, output_dirs,
-                     downsample, closing_radius, output_scale=1):
+                     downsample, closing_radius, output_scale=1, cell_dark=False):
     """
     Re-load slice, compute mask, center cell in canvas, save 3 TIFFs.
     """
     fp = record['filepath']
     img = tifffile.imread(fp)
-    mask, _ = compute_cell_mask(img, downsample, closing_radius)
+    mask, _ = compute_cell_mask(img, downsample, closing_radius, cell_dark=cell_dark)
 
     cy, cx = center_of_mass(mask)
     canvas_cy, canvas_cx = canvas_h // 2, canvas_w // 2
@@ -241,48 +244,71 @@ def process_and_save(record, canvas_h, canvas_w, output_dirs,
 #  ANALYSIS GRAPHS
 # =============================================================================
 
-def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
-    """Generate 5 analysis graphs for the report."""
-    n = len(df)
-    x = range(1, n + 1)
-    xlabels = [f.replace('.tif', '').split('.')[-1][-3:] for f in df['filename']]
+# Colorblind-safe palette (Okabe-Ito)
+CB_BLUE   = '#0072B2'   # retained series 1
+CB_ORANGE = '#E69F00'   # retained series 2
+CB_GRAY   = '#999999'   # context / non-retained
+CB_BLACK  = '#000000'
 
-    # 1. Bbox per slice
+
+def _thin_ticks(ax, positions, labels, max_ticks=12):
+    """Show at most ~max_ticks evenly spaced x-ticks, so the axis stays
+    readable whatever the number of slices."""
+    positions = np.asarray(positions)
+    labels = np.asarray(labels)
+    if len(positions) > max_ticks:
+        idx = np.linspace(0, len(positions) - 1, max_ticks).astype(int)
+        positions = positions[idx]
+        labels = labels[idx]
+    ax.set_xticks(positions)
+    ax.set_xticklabels([str(int(l)) for l in labels], fontsize=9)
+
+
+def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
+    """Generate 5 analysis graphs for the report (colorblind-safe, readable axes)."""
+    n = len(df)
+    x = np.arange(1, n + 1)          # slice number, 1-based
+    xp = np.arange(n)                # bar positions, 0-based
+
+    # 1. Bounding box per slice
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(x, df['bbox_h'], 'o-', label='Hauteur (bbox_h)', color='steelblue')
-    ax.plot(x, df['bbox_w'], 's-', label='Largeur (bbox_w)', color='darkorange')
-    ax.set_xlabel('Slice'); ax.set_ylabel('Dimensions (px)')
+    ax.plot(x, df['bbox_h'], 'o-', label='Hauteur (bbox_h)', color=CB_BLUE, markersize=4)
+    ax.plot(x, df['bbox_w'], 's-', label='Largeur (bbox_w)', color=CB_ORANGE, markersize=4)
+    ax.set_xlabel('Numero de slice'); ax.set_ylabel('Dimensions (px)')
     ax.set_title('Taille de la bounding box cellulaire par slice')
     ax.legend(); ax.grid(True, alpha=0.3)
-    ax.set_xticks(x); ax.set_xticklabels(xlabels, rotation=45, fontsize=8)
+    _thin_ticks(ax, x, x)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'graph_1_bbox_per_slice.png'), dpi=120)
     plt.close()
 
     # 2. Size reduction
     fig, ax = plt.subplots(figsize=(10, 5))
-    width = 0.35
-    xp = np.arange(n)
-    ax.bar(xp - width/2, df['size_mo_before'], width, label='Avant (original)', color='lightcoral')
-    ax.bar(xp + width/2, df['size_mo_after_masked'], width, label='Apres (masked)', color='mediumseagreen')
+    width = 0.42
+    ax.bar(xp - width/2, df['size_mo_before'], width, label='Avant (original)', color=CB_GRAY)
+    ax.bar(xp + width/2, df['size_mo_after_masked'], width, label='Apres (masque)', color=CB_BLUE)
     red = (1 - df['size_mo_after_masked'].sum() / df['size_mo_before'].sum()) * 100
-    ax.set_xlabel('Slice'); ax.set_ylabel('Taille fichier (Mo)')
-    ax.set_title(f'Reduction de taille par slice (moyenne: -{red:.1f}%)')
+    ax.set_xlabel('Numero de slice'); ax.set_ylabel('Taille fichier (Mo)')
+    ax.set_title(f'Reduction de taille par slice (moyenne : -{red:.1f}%)')
     ax.legend(); ax.grid(True, alpha=0.3, axis='y')
-    ax.set_xticks(xp); ax.set_xticklabels(xlabels, rotation=45, fontsize=8)
+    _thin_ticks(ax, xp, xp + 1)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'graph_2_size_reduction.png'), dpi=120)
     plt.close()
 
     # 3. Centroid trajectory
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.plot(df['centroid_x'], df['centroid_y'], 'o-', color='purple',
-            markersize=8, linewidth=1)
-    ax.annotate('Slice 1', (df['centroid_x'].iloc[0], df['centroid_y'].iloc[0]),
-                xytext=(10, 10), textcoords='offset points', color='green', fontweight='bold')
-    ax.annotate(f'Slice {n}', (df['centroid_x'].iloc[-1], df['centroid_y'].iloc[-1]),
-                xytext=(10, 10), textcoords='offset points', color='red', fontweight='bold')
-    ax.set_xlabel('Centroid X (px)'); ax.set_ylabel('Centroid Y (px)')
+    ax.plot(df['centroid_x'], df['centroid_y'], '-', color=CB_BLUE, linewidth=1, alpha=0.7)
+    ax.scatter(df['centroid_x'], df['centroid_y'], color=CB_BLUE, s=30, zorder=3)
+    ax.scatter(df['centroid_x'].iloc[0], df['centroid_y'].iloc[0],
+               color=CB_BLUE, s=120, edgecolors=CB_BLACK, linewidths=1.5, zorder=4)
+    ax.scatter(df['centroid_x'].iloc[-1], df['centroid_y'].iloc[-1],
+               color=CB_ORANGE, s=120, edgecolors=CB_BLACK, linewidths=1.5, zorder=4)
+    ax.annotate('Debut (slice 1)', (df['centroid_x'].iloc[0], df['centroid_y'].iloc[0]),
+                xytext=(10, 10), textcoords='offset points', color=CB_BLACK, fontweight='bold')
+    ax.annotate(f'Fin (slice {n})', (df['centroid_x'].iloc[-1], df['centroid_y'].iloc[-1]),
+                xytext=(10, 10), textcoords='offset points', color=CB_BLACK, fontweight='bold')
+    ax.set_xlabel('Centroide X (px)'); ax.set_ylabel('Centroide Y (px)')
     ax.set_title("Derive spatiale de la cellule entre slices\n(justifie le recalage)")
     ax.grid(True, alpha=0.3); ax.invert_yaxis(); ax.set_aspect('equal')
     plt.tight_layout()
@@ -292,12 +318,12 @@ def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
     # 4. Intensity stability
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.errorbar(x, df['mean_cell'], yerr=df['std_cell'],
-                fmt='o-', capsize=5, color='teal', ecolor='lightblue',
+                fmt='o-', capsize=4, color=CB_BLUE, ecolor=CB_GRAY, markersize=4,
                 label='Moyenne +/- ecart-type')
-    ax.set_xlabel('Slice'); ax.set_ylabel('Intensite (0-255)')
-    ax.set_title("Distribution des intensites interieur cellule\n(preuve de la preservation du signal)")
+    ax.set_xlabel('Numero de slice'); ax.set_ylabel('Intensite (niveaux de gris)')
+    ax.set_title("Distribution des intensites a l'interieur de la cellule\n(preuve de la preservation du signal)")
     ax.legend(); ax.grid(True, alpha=0.3)
-    ax.set_xticks(x); ax.set_xticklabels(xlabels, rotation=45, fontsize=8)
+    _thin_ticks(ax, x, x)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'graph_4_intensity_stability.png'), dpi=120)
     plt.close()
@@ -306,19 +332,25 @@ def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
     all_sizes = np.concatenate([df['bbox_h'].values, df['bbox_w'].values])
     q1, q3 = np.percentile(all_sizes, [25, 75])
-    iqr = q3 - q1
-    upper_fence = q3 + 1.5 * iqr
+    upper_fence = q3 + 1.5 * (q3 - q1)
 
-    colors_h = ['crimson' if v > upper_fence else 'steelblue' for v in df['bbox_h']]
-    colors_w = ['crimson' if v > upper_fence else 'darkorange' for v in df['bbox_w']]
-    ax1.scatter(x, df['bbox_h'], c=colors_h, s=80, label='bbox_h')
-    ax1.scatter(x, df['bbox_w'], c=colors_w, s=80, marker='s', label='bbox_w')
-    ax1.axhline(upper_fence, color='red', linestyle='--', alpha=0.7,
+    is_out_h = df['bbox_h'] > upper_fence
+    is_out_w = df['bbox_w'] > upper_fence
+    ax1.scatter(x, df['bbox_h'], color=CB_BLUE, s=45, label='bbox_h')
+    ax1.scatter(x, df['bbox_w'], color=CB_ORANGE, s=45, marker='s', label='bbox_w')
+    if is_out_h.any():
+        ax1.scatter(x[is_out_h.values], df['bbox_h'][is_out_h.values],
+                    facecolors='none', edgecolors=CB_BLACK, linewidths=2, s=140,
+                    label='Outlier')
+    if is_out_w.any():
+        ax1.scatter(x[is_out_w.values], df['bbox_w'][is_out_w.values],
+                    facecolors='none', edgecolors=CB_BLACK, linewidths=2, s=140)
+    ax1.axhline(upper_fence, color=CB_BLACK, linestyle='--', alpha=0.6,
                 label=f'Seuil outlier ({upper_fence:.0f} px)')
-    ax1.set_xlabel('Slice'); ax1.set_ylabel('Dimension (px)')
-    ax1.set_title(f'Detection outliers (IQR)\nEn rouge : slices > {upper_fence:.0f} px')
+    ax1.set_xlabel('Numero de slice'); ax1.set_ylabel('Dimension (px)')
+    ax1.set_title(f'Detection des outliers (IQR)\nCercles noirs : slices > {upper_fence:.0f} px')
     ax1.legend(); ax1.grid(True, alpha=0.3)
-    ax1.set_xticks(x); ax1.set_xticklabels(xlabels, rotation=45, fontsize=8)
+    _thin_ticks(ax1, x, x)
 
     normal = df[(df['bbox_h'] <= upper_fence) & (df['bbox_w'] <= upper_fence)]
     if len(normal) > 0:
@@ -326,11 +358,12 @@ def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
         canvas_nor = normal['bbox_h'].max() * normal['bbox_w'].max() / 1e6
         red = (1 - canvas_nor / canvas_all) * 100
         ax2.bar(['Canvas actuel\n(avec outliers)', 'Canvas possible\n(sans outliers)'],
-                [canvas_all, canvas_nor], color=['crimson', 'mediumseagreen'])
+                [canvas_all, canvas_nor], color=[CB_GRAY, CB_BLUE])
         ax2.set_ylabel('Taille canvas (Mpx)')
         ax2.set_title(f'Impact des outliers\nReduction possible : -{red:.0f}%')
         for i, v in enumerate([canvas_all, canvas_nor]):
-            ax2.text(i, v + 0.5, f'{v:.1f} Mpx', ha='center', fontweight='bold')
+            ax2.text(i, v + max(canvas_all, canvas_nor) * 0.01, f'{v:.1f} Mpx',
+                     ha='center', fontweight='bold')
         ax2.grid(True, alpha=0.3, axis='y')
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'graph_5_outlier_analysis.png'), dpi=120)
@@ -342,7 +375,7 @@ def generate_analysis_graphs(df, output_dir, canvas_h, canvas_w):
 # =============================================================================
 
 def generate_qc_panel(records, output_dirs, canvas_h, canvas_w,
-                      out_path, n_thumb=10, thumb_size=400):
+                      out_path, n_thumb=10, thumb_size=400, cell_dark=False):
     """Visual QC : [original | mask overlay | final masked] for N slices."""
     n = min(n_thumb, len(records))
     if n == 0:
@@ -356,7 +389,8 @@ def generate_qc_panel(records, output_dirs, canvas_h, canvas_w,
     for row, i in enumerate(indices):
         r = records[i]
         img = tifffile.imread(r['filepath'])
-        mask, _ = compute_cell_mask(img, downsample=4, closing_radius=5)
+        mask, _ = compute_cell_mask(img, downsample=4, closing_radius=5,
+                                    cell_dark=cell_dark)
 
         def to_display(arr):
             if arr.dtype != np.uint8:
@@ -409,7 +443,7 @@ def generate_qc_panel(records, output_dirs, canvas_h, canvas_w,
 
 def run_pipeline(input_dir, output_dir, n_samples=0,
                  downsample=4, closing_radius=5, padding=100, output_scale=1,
-                 progress_callback=None):
+                 cell_dark=False, progress_callback=None):
     """
     Run the full pipeline on a folder of TIFF files.
 
@@ -466,7 +500,7 @@ def run_pipeline(input_dir, output_dir, n_samples=0,
         progress_callback(0, total_steps, f"Scanning {len(files)} files ...")
 
     # Pass 1 : scan
-    records = scan_slices(files, downsample, closing_radius,
+    records = scan_slices(files, downsample, closing_radius, cell_dark=cell_dark,
                           progress_callback=lambda c, t, m:
                               progress_callback(c, total_steps, m) if progress_callback else None)
     if not records:
@@ -485,7 +519,8 @@ def run_pipeline(input_dir, output_dir, n_samples=0,
             progress_callback(len(files) + i + 1, total_steps,
                               f"Saving [{i+1}/{len(records)}] {r['filename']}")
         result = process_and_save(r, canvas_h, canvas_w, output_dirs,
-                                  downsample, closing_radius, output_scale)
+                                  downsample, closing_radius, output_scale,
+                                  cell_dark=cell_dark)
         stats = {**r, **result}
         stats.pop('filepath')
         stats.pop('img_shape')
@@ -529,7 +564,8 @@ def run_pipeline(input_dir, output_dir, n_samples=0,
     if progress_callback:
         progress_callback(2*len(files) + 2, total_steps, "Generating QC panel ...")
     generate_qc_panel(records, output_dirs, canvas_h, canvas_w,
-                      os.path.join(output_dirs['qc'], 'qc_panel.png'))
+                      os.path.join(output_dirs['qc'], 'qc_panel.png'),
+                      cell_dark=cell_dark)
 
     # Analysis graphs
     if progress_callback:
@@ -571,6 +607,8 @@ def main():
     parser.add_argument('--closing-radius', type=int, default=5)
     parser.add_argument('--padding', type=int, default=100)
     parser.add_argument('--output-scale', type=int, default=1)
+    parser.add_argument('--cell-dark', action='store_true',
+                        help='Cell is darker than background (invert threshold).')
     args = parser.parse_args()
 
     t0 = time.time()
@@ -582,6 +620,7 @@ def main():
         closing_radius=args.closing_radius,
         padding=args.padding,
         output_scale=args.output_scale,
+        cell_dark=args.cell_dark,
         progress_callback=_cli_progress,
     )
     print(f"\nDone in {time.time()-t0:.1f}s")
