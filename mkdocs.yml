@@ -1,0 +1,43 @@
+site_name: CellFocus
+site_description: Cell-focused preprocessing for SBF-SEM organelle segmentation
+site_author: Hermine Kiossou
+repo_url: https://github.com/Hermine-K/amira-sbfsem-cell-mask
+repo_name: Hermine-K/amira-sbfsem-cell-mask
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.top
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Outputs: outputs.md
+  - Amira integration: amira.md
+  - About: about.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
