@@ -596,10 +596,37 @@ def _cli_progress(current, total, message):
     print(f"  [{current}/{total}] {message}")
 
 
+__version__ = "0.1.0"
+
+# ASCII banner shown when CellFocus runs as a command-line tool.
+# Switch CLI_FONT / BANNER to another figlet style (e.g. "ansi_shadow")
+# for a bolder blocky look.
+CLI_FONT = "slant"
+BANNER = r'''
+   ______     __________                     
+  / ____/__  / / / ____/___  _______  _______
+ / /   / _ \/ / / /_  / __ \/ ___/ / / / ___/
+/ /___/  __/ / / __/ / /_/ / /__/ /_/ (__  ) 
+\____/\___/_/_/_/    \____/\___/\__,_/____/  
+                                             
+'''
+TAGLINE = "Cell-focused preprocessing for SBF-SEM segmentation"
+
+
+def print_banner():
+    """Print the CellFocus banner (command-line only)."""
+    try:
+        print(BANNER)
+    except Exception:
+        print("CellFocus")
+    print(f"  {TAGLINE}  (v{__version__})\n")
+
+
 def main():
+    print_banner()
     import argparse
     parser = argparse.ArgumentParser(
-        description="SBF-SEM Cell Masking Pipeline v2")
+        description="CellFocus - cell-focused preprocessing for SBF-SEM segmentation")
     parser.add_argument('--input', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--n-samples', type=int, default=0)
