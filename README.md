@@ -1,5 +1,10 @@
 # CellFocus
 
+[![Documentation](https://img.shields.io/badge/docs-cellfocus.readthedocs.io-674EA7?style=for-the-badge&logo=readthedocs&logoColor=white)](https://cellfocus.readthedocs.io)
+
+![Python](https://img.shields.io/badge/python-3.9+-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 **Isolate, crop and re-center the main object in large grayscale image stacks.**
 
 CellFocus is a standalone Python tool that isolates a single main object (for
